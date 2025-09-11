@@ -158,7 +158,7 @@ class GovernmentModel:
             expected_beta_star = 0.0
             expected_reg_welfare = 0.0
             expected_innov_util = 0.0
-            expected_non_innov_util = 0.0
+            expected_non_innov_util  = 0.0
 
             for v_idx, v in enumerate(self.v_grid):
                 sim = self._calculate_welfare_for_v(w, regulator_scheme, float(bar_beta), float(v))
@@ -168,7 +168,7 @@ class GovernmentModel:
                     expected_beta_star += sim["beta_star"] * weight
                     expected_reg_welfare += sim["reg_welfare_for_v"] * weight
                     expected_innov_util += sim["innov_util"] * weight
-                    expected_non_invest_util += (sim["imit_util"] + sim["non_invest_util"]) * weight
+                    expected_non_innov_util += (sim["imit_util"] + sim["non_invest_util"]) * weight
 
             results_list.append({
                 "bar_beta": float(bar_beta),
@@ -176,7 +176,7 @@ class GovernmentModel:
                 "expected_beta_star": float(expected_beta_star),
                 "expected_reg_welfare": float(expected_reg_welfare),
                 "expected_innov_util": float(expected_innov_util),
-                "expected_non_invest_util": float(expected_non_invest_util),
+                "expected_non_innov_util": float(expected_non_innov_util),
             })
 
         if not results_list:
@@ -194,7 +194,7 @@ class GovernmentModel:
             expected_beta_star = 0.0
             expected_reg_welfare = 0.0
             expected_innov_util = 0.0
-            expected_non_invest_util = 0.0
+            expected_non_innov_util = 0.0
 
             for v_idx, v in enumerate(self.v_grid):
                 sim = self._calculate_welfare_for_v(w, regulator_scheme, float(bar_beta), float(v))
@@ -204,7 +204,7 @@ class GovernmentModel:
                     expected_beta_star += sim["beta_star"] * weight
                     expected_reg_welfare += sim["reg_welfare_for_v"] * weight
                     expected_innov_util += sim["innov_util"] * weight
-                    expected_non_invest_util += (sim["imit_util"] + sim["non_invest_util"]) * weight
+                    expected_non_innov_util += (sim["imit_util"] + sim["non_invest_util"]) * weight
 
             debug_results.append({
                 "bar_beta": float(bar_beta),
@@ -212,6 +212,6 @@ class GovernmentModel:
                 "expected_beta_star": float(expected_beta_star),
                 "expected_reg_welfare": float(expected_reg_welfare),
                 "expected_innov_util": float(expected_innov_util),
-                "expected_non_invest_util": float(expected_non_invest_util),
+                "expected_non_innov_util": float(expected_non_innov_util),
             })
         return pd.DataFrame(debug_results)
