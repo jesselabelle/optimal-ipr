@@ -1,0 +1,24 @@
+Metadata-Version: 2.4
+Name: optimal_ipr
+Version: 1.0.0
+Summary: Optimal IPR model utilities: distributions, probabilities, costs, fees, lookup, regulator, government, baseline, outcomes
+Author: Jesse LaBelle
+License: MIT
+Requires-Python: >=3.9
+Description-Content-Type: text/markdown
+License-File: LICENSE
+Requires-Dist: numpy
+Requires-Dist: scipy
+Requires-Dist: pandas
+Requires-Dist: powerlaw
+Requires-Dist: joblib
+Requires-Dist: tqdm
+Dynamic: license-file
+
+# Optimal IPR
+
+Utilities for the **Optimal IPR in a BEPS World** model.
+
+## Install
+```bash
+pip install -e .

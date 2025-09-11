@@ -126,19 +126,21 @@ class RegulatorModel:
                 f"v={v}, total={total_value_distributed}"
             )
 
-        # welfare by scheme
+        # Calculate Total Welfare based on the regulator's preference scheme.
         scheme_params = self.preferences[scheme]
-        if isinstance(scheme_params, str) and scheme_params == "special_case":
+        if scheme_params == "special_case":
             if scheme == "utilitarian":
+                # Sum of all utilities (innovator, imitators, public revenue)
                 welfare = innov_util + imit_util_total + public_revenue
             elif scheme == "rawlsian":
+                # Welfare is the utility of the worst-off agent (min of innovator vs avg imitator)
                 welfare = np.minimum(innov_util, avg_imitator_utility)
             else:
-                welfare = np.zeros_like(beta)
+                welfare = np.zeros_like(beta) # Should not happen
         else:
-            phi = scheme_params.get("phi", 0.5)
-            psi = scheme_params.get("psi", 0.0)
-            private_welfare = phi * innov_util + (1.0 - phi) * imit_util_total
+            # Weighted sum based on phi (private vs. private) and psi (private vs. public)
+            phi, psi = scheme_params["phi"], scheme_params["psi"]
+            private_welfare = phi * innov_util + (1 - phi) * imit_util_total
             welfare = private_welfare + psi * public_revenue
 
         return {
