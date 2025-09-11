@@ -13,6 +13,7 @@ Requires-Dist: pandas
 Requires-Dist: powerlaw
 Requires-Dist: joblib
 Requires-Dist: tqdm
+Requires-Dist: ipywidgets
 Dynamic: license-file
 
 # Optimal IPR
