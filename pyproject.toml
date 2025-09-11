@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "optimal_ipr"
+version = "1.0.0"
+description = "Optimal IPR model utilities: distributions, probabilities, costs, fees, lookup, regulator, government, baseline, outcomes"
+readme = "README.md"
+requires-python = ">=3.9"
+license = {text = "MIT"}
+authors = [{ name = "Jesse LaBelle" }]
+dependencies = [
+    "numpy",
+    "scipy",
+    "pandas",
+    "powerlaw",
+    "joblib",
+    "tqdm",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.black]
+line-length = 100
+target-version = ["py39"]
+
+[tool.isort]
+profile = "black"
+line_length = 100

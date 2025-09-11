@@ -1,0 +1,18 @@
+import numpy as np
+import pytest
+from optimal_ipr.probability import build_subjective_probability
+
+def test_subjective_probability_smoke():
+    try:
+        p = build_subjective_probability(base_k=0.5, m_comp=25)
+    except FileNotFoundError:
+        pytest.skip("Missing data/top2000_SB2024.xlsx for theta distribution.")
+        return
+
+    th = np.linspace(0, 1, 11)
+    # increasing in theta for fixed v (weakly, numerically)
+    v = 2.0
+    pv = p(th, v)
+    assert pv.shape == th.shape
+    assert np.all(np.isfinite(pv))
+    assert 0.0 <= float(pv.min()) <= float(pv.max()) <= 1.0
