@@ -1,0 +1,17 @@
+# Virtual environment
+.venv/
+
+# Python cache/compiled files
+__pycache__/
+*.pyc
+
+# Jupyter notebook checkpoints
+.ipynb_checkpoints/
+
+# OS junk files
+.DS_Store
+Thumbs.db
+
+# Local data or outputs
+data/
+outputs/
