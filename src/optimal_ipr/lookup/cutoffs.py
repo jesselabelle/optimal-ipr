@@ -105,14 +105,14 @@ class InvestmentCutoffSolver:
         self._bar_beta = float(bar_beta)
         self._rev_cache.clear()
 
-        top = self._indifference_gap(0.999)
+        top = self._indifference_gap(0.9990)
         if top < 0:
             return 1.0
-        bot = self._indifference_gap(0.001)
+        bot = self._indifference_gap(0.0001)
         if bot > 0:
             return 0.0
         try:
-            return brentq(self._indifference_gap, 0.001, 0.999, maxiter=200)
+            return brentq(self._indifference_gap, 0.0001, 0.9999, maxiter=200)
         except (ValueError, RuntimeError):
             return None
 
@@ -179,10 +179,32 @@ def build_lookup_tables(
         for k, bar_beta_val in enumerate(bar_grid):
             for l, v_val in enumerate(v_grid):
                 theta_tilde_val = solver.solve(v=v_val, bar_beta=bar_beta_val)
-                if theta_tilde_val is not None and 0 < theta_tilde_val < 1:
-                    theta_tilde_slice[k, l] = theta_tilde_val
-                    stochastic_winner = choose_stochastic_winner(theta_tilde_val, v_val, p, theta_points, rng)
-                    theta_winner_slice[k, l] = stochastic_winner
+
+                if theta_tilde_val is None or np.isnan(theta_tilde_val):
+                    top_gap = solver._indifference_gap(0.9999)
+                    bot_gap = solver._indifference_gap(0.0001)
+                    if top_gap < 0:
+                        theta_tilde_val = 1.0
+                        theta_winner = 1.0
+                    elif bot_gap > 0:
+                        theta_tilde_val = 0.0
+                        theta_winner = 0.0
+                    else:
+                        theta_tilde_val = 0.0
+                        theta_winner = 0.0
+                elif theta_tilde_val >= 1:
+                    theta_tilde_val = 1.0
+                    theta_winner = 1.0
+                elif theta_tilde_val <= 0:
+                    theta_tilde_val = 0.0
+                    theta_winner = 0.0
+                else:
+                    theta_winner = choose_stochastic_winner(theta_tilde_val, v_val, p, theta_points, rng)
+                    if np.isnan(theta_winner):
+                        theta_winner = theta_tilde_val
+
+                theta_tilde_slice[k, l] = theta_tilde_val
+                theta_winner_slice[k, l] = theta_winner
         return theta_tilde_slice, theta_winner_slice
 
     tau_pairs = [(td, tf) for td in tau_d_grid for tf in tau_f_grid]
