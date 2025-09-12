@@ -11,6 +11,18 @@ from optimal_ipr.government import GovernmentModel
 _N_TOTAL_FIRMS = 29_990
 
 
+_THETA_POINTS_CACHE: np.ndarray | None = None
+_THETA_WEIGHTS_CACHE: np.ndarray | None = None
+
+
+def _compute_theta_grid(f: Callable[[np.ndarray], np.ndarray]) -> tuple[np.ndarray, np.ndarray]:
+    global _THETA_POINTS_CACHE, _THETA_WEIGHTS_CACHE
+    if _THETA_POINTS_CACHE is None or _THETA_WEIGHTS_CACHE is None:
+        _THETA_POINTS_CACHE = np.linspace(0.0, 1.0, 10000)
+        _THETA_WEIGHTS_CACHE = f(_THETA_POINTS_CACHE)
+    return _THETA_POINTS_CACHE, _THETA_WEIGHTS_CACHE
+
+
 def _to_grid(x) -> np.ndarray:
     return np.atleast_1d(np.asarray(x, dtype=float))
 
@@ -33,10 +45,16 @@ def welfare_outcomes(
     Z: Callable[[np.ndarray | float, np.ndarray | float], np.ndarray | float],
     feas: bool,
     reuse_baseline: bool = True,
+    theta_points: np.ndarray | None = None,
+    theta_weights: np.ndarray | None = None,
 ) -> pd.DataFrame:
     """
     In[25]: Solve the gov problem for each (tau_d, tau_f), compute baseline (beta=1),
     then return the table with % changes relative to baseline.
+
+    The expensive theta integration grid can be supplied through ``theta_points`` and
+    ``theta_weights``. When omitted, the grid is computed once and cached at the module
+    level for reuse across calls.
     """
     tau_d_grid = _to_grid(tau_d)
     tau_f_grid = _to_grid(tau_f)
@@ -47,8 +65,8 @@ def welfare_outcomes(
     beta_grid = bar_grid.copy()
 
     # theta integration grid
-    theta_points = np.linspace(0.0, 1.0, 10000)
-    theta_weights = f(theta_points)
+    if theta_points is None or theta_weights is None:
+        theta_points, theta_weights = _compute_theta_grid(f)
 
     # index helpers aligned with lookup axes
     def get_tau_d_index(val, grid=tau_d_grid):
