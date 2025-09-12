@@ -1,18 +1,85 @@
 from __future__ import annotations
-import numpy as np
+
 from typing import Callable, Tuple
-from numpy.typing import ArrayLike
+
+import numpy as np
 from joblib import Parallel, delayed
-from tqdm.auto import tqdm
+from numba import njit, prange
+from numpy.typing import ArrayLike
 from scipy.optimize import brentq
+from tqdm.auto import tqdm
+
+
+@njit(parallel=True)
+def _total_revenue_at_impl(
+    theta_tilde: float,
+    theta_points: np.ndarray,
+    theta_weights: np.ndarray,
+    p_vals: np.ndarray,
+    c_vals: np.ndarray,
+    v: float,
+    bar_beta: float,
+    tau_d: float,
+    n_total_firms: float,
+    profit_shifted: bool,
+    mass_of_investors: int,
+) -> float:
+    imitator_profit = (1.0 - bar_beta) * v / mass_of_investors
+    total_revenue = 0.0
+    for i in prange(theta_points.shape[0]):
+        if theta_points[i] >= theta_tilde:
+            if profit_shifted:
+                innov_taxable = c_vals[i] * bar_beta
+            else:
+                innov_taxable = v * bar_beta
+            win_prob = p_vals[i]
+            expected_tax_base_per_firm = (
+                win_prob * innov_taxable + (1.0 - win_prob) * imitator_profit
+            )
+            total_revenue += tau_d * n_total_firms * expected_tax_base_per_firm * theta_weights[i]
+    return total_revenue
+
+
+@njit
+def _indifference_gap_impl(
+    p_theta: float,
+    c_theta: float,
+    mass_of_investors: float,
+    v: float,
+    bar_beta: float,
+    tau_d: float,
+    tau_f: float,
+    Z_val: float,
+    profit_shifted: bool,
+    transfer: float,
+) -> float:
+    if profit_shifted:
+        innovator_payoff = bar_beta * ((1 - tau_f) * (v - c_theta) + (1 - tau_d) * c_theta)
+    else:
+        innovator_payoff = bar_beta * v * (1 - tau_d)
+
+    if mass_of_investors >= 1.0:
+        imitator_payoff = (1.0 - bar_beta) * v / mass_of_investors
+    else:
+        imitator_payoff = 0.0
+
+    investing_utility = (
+        p_theta * (innovator_payoff - Z_val)
+        + (1.0 - p_theta) * imitator_payoff * (1.0 - tau_d)
+        - c_theta
+    )
+    return investing_utility - transfer
+
 
 # Match the file constants
 _N_TOTAL_FIRMS = 29_990  # N_total_firms
+
 
 class InvestmentCutoffSolver:
     """
     Discrete-sum version as in In[14].
     """
+
     def __init__(
         self,
         p_func: Callable[[ArrayLike, float], np.ndarray],
@@ -29,7 +96,7 @@ class InvestmentCutoffSolver:
         self.p, self.c, self.Z, self.f, self.F = p_func, c_func, Z_func, f_dist, F_dist
         self.n_total_firms = float(n_total_firms)
         self.tau_d, self.tau_f = float(tau_d), float(tau_f)
-        self._profit_shifted = (self.tau_d > self.tau_f)
+        self._profit_shifted = self.tau_d > self.tau_f
 
         self.theta_points = np.asarray(theta_points, dtype=float)
         self.theta_weights = np.asarray(theta_weights, dtype=float)
@@ -37,6 +104,10 @@ class InvestmentCutoffSolver:
         self._v = None
         self._bar_beta = None
         self._rev_cache = {}
+        self._pc_cache = {}
+        self._p_theta_v = None
+        self._c_theta_v = None
+        self._Z_val = None
 
     def _total_revenue_at(self, theta_tilde: float) -> float:
         key = float(theta_tilde)
@@ -48,27 +119,19 @@ class InvestmentCutoffSolver:
             self._rev_cache[key] = 0.0
             return 0.0
 
-        imitator_profit = (1.0 - self._bar_beta) * self._v / mass_of_investors
-
-        mask = self.theta_points >= theta_tilde
-        th = self.theta_points[mask]
-        w = self.theta_weights[mask]
-
-        if self._profit_shifted:
-            try:
-                innov_taxable = self.c(th, self._v) * self._bar_beta
-            except Exception:
-                innov_taxable = np.array([self.c(ti, self._v) for ti in th]) * self._bar_beta
-        else:
-            innov_taxable = np.full_like(th, self._v * self._bar_beta)
-
-        try:
-            win_prob = self.p(th, self._v)
-        except Exception:
-            win_prob = np.array([self.p(ti, self._v) for ti in th])
-
-        expected_tax_base_per_firm = win_prob * innov_taxable + (1.0 - win_prob) * imitator_profit
-        total_revenue = float(np.sum(self.tau_d * self.n_total_firms * expected_tax_base_per_firm * w))
+        total_revenue = _total_revenue_at_impl(
+            theta_tilde,
+            self.theta_points,
+            self.theta_weights,
+            self._p_theta_v,
+            self._c_theta_v,
+            self._v,
+            self._bar_beta,
+            self.tau_d,
+            self.n_total_firms,
+            self._profit_shifted,
+            mass_of_investors,
+        )
 
         self._rev_cache[key] = total_revenue
         return total_revenue
@@ -81,29 +144,36 @@ class InvestmentCutoffSolver:
 
     def _indifference_gap(self, theta_tilde: float) -> float:
         th = float(theta_tilde)
-        if self._profit_shifted:
-            innovator_payoff = self._bar_beta * (
-                (1 - self.tau_f) * (self._v - self.c(th, self._v)) +
-                (1 - self.tau_d) * self.c(th, self._v)
-            )
-        else:
-            innovator_payoff = self._bar_beta * self._v * (1 - self.tau_d)
-
         mass_of_investors = (1.0 - self.F(th)) * self.n_total_firms
-        imitator_payoff = (1.0 - self._bar_beta) * self._v / mass_of_investors if mass_of_investors >= 1 else 0.0
-
-        win_prob = self.p(th, self._v)
-        investing_utility = (
-            win_prob * (innovator_payoff - self.Z(self._bar_beta, self._v)) +
-            (1.0 - win_prob) * imitator_payoff * (1.0 - self.tau_d) -
-            self.c(th, self._v)
+        p_theta = np.interp(th, self.theta_points, self._p_theta_v)
+        c_theta = np.interp(th, self.theta_points, self._c_theta_v)
+        transfer = self._get_transfer(th)
+        return _indifference_gap_impl(
+            p_theta,
+            c_theta,
+            mass_of_investors,
+            self._v,
+            self._bar_beta,
+            self.tau_d,
+            self.tau_f,
+            self._Z_val,
+            self._profit_shifted,
+            transfer,
         )
-        return investing_utility - self._get_transfer(th)
 
     def solve(self, v: float, bar_beta: float):
         self._v = float(v)
         self._bar_beta = float(bar_beta)
         self._rev_cache.clear()
+
+        key_v = float(v)
+        if key_v in self._pc_cache:
+            self._p_theta_v, self._c_theta_v = self._pc_cache[key_v]
+        else:
+            self._p_theta_v = self.p(self.theta_points, self._v)
+            self._c_theta_v = self.c(self.theta_points, self._v)
+            self._pc_cache[key_v] = (self._p_theta_v, self._c_theta_v)
+        self._Z_val = float(self.Z(self._bar_beta, self._v))
 
         top = self._indifference_gap(0.999)
         if top < 0:
@@ -169,7 +239,9 @@ def build_lookup_tables(
         """
         In[17]: produce both θ̃ and winner slices for one (tau_d, tau_f).
         """
-        solver = InvestmentCutoffSolver(p, c, Z, f, F, _N_TOTAL_FIRMS, td, tf, theta_points, theta_weights)
+        solver = InvestmentCutoffSolver(
+            p, c, Z, f, F, _N_TOTAL_FIRMS, td, tf, theta_points, theta_weights
+        )
         theta_tilde_slice = np.full((len(bar_grid), len(v_grid)), np.nan)
         theta_winner_slice = np.full((len(bar_grid), len(v_grid)), np.nan)
 
@@ -178,13 +250,16 @@ def build_lookup_tables(
                 theta_tilde_val = solver.solve(v=v_val, bar_beta=bar_beta_val)
                 if theta_tilde_val is not None and 0 < theta_tilde_val < 1:
                     theta_tilde_slice[k, l] = theta_tilde_val
-                    stochastic_winner = choose_stochastic_winner(theta_tilde_val, v_val, p, theta_points)
+                    stochastic_winner = choose_stochastic_winner(
+                        theta_tilde_val, v_val, p, theta_points
+                    )
                     theta_winner_slice[k, l] = stochastic_winner
         return theta_tilde_slice, theta_winner_slice
 
     tau_pairs = [(td, tf) for td in tau_d_grid for tf in tau_f_grid]
     results_list = Parallel(n_jobs=-1)(
-        delayed(compute_slice_for_taus)(td, tf) for td, tf in tqdm(tau_pairs, desc="Processing tau pairs")
+        delayed(compute_slice_for_taus)(td, tf)
+        for td, tf in tqdm(tau_pairs, desc="Processing tau pairs")
     )
 
     lookup_table_shape = (len(tau_d_grid), len(tau_f_grid), len(bar_grid), len(v_grid))
@@ -200,10 +275,17 @@ def build_lookup_tables(
             idx += 1
 
     # Helper index functions (closest grid index), as in the file
-    def get_tau_d_index(val, grid=tau_d_grid): return int(np.argmin(np.abs(grid - val)))
-    def get_tau_f_index(val, grid=tau_f_grid): return int(np.argmin(np.abs(grid - val)))
-    def get_bar_beta_index(val, grid=bar_grid): return int(np.argmin(np.abs(grid - val)))
-    def get_v_index(val, grid=v_grid): return int(np.argmin(np.abs(grid - val)))
+    def get_tau_d_index(val, grid=tau_d_grid):
+        return int(np.argmin(np.abs(grid - val)))
+
+    def get_tau_f_index(val, grid=tau_f_grid):
+        return int(np.argmin(np.abs(grid - val)))
+
+    def get_bar_beta_index(val, grid=bar_grid):
+        return int(np.argmin(np.abs(grid - val)))
+
+    def get_v_index(val, grid=v_grid):
+        return int(np.argmin(np.abs(grid - val)))
 
     return (
         theta_tilde_table,
