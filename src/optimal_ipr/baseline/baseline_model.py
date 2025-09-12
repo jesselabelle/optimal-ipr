@@ -3,11 +3,13 @@ import numpy as np
 import pandas as pd
 from typing import Callable, Dict, Any
 
+
 class BaselineModel:
     """
     Baseline scenario with beta fixed at 1.
-    Pulls θ̃, θ_winner from lookup at bar_beta=1 and computes outcomes. 
+    Pulls θ̃, θ_winner from lookup at bar_beta=1 and computes outcomes.
     """
+
     def __init__(
         self,
         *,
@@ -38,7 +40,7 @@ class BaselineModel:
         self.theta_weights = np.asarray(theta_weights, dtype=float)
         self.F, self.c, self.Z = F, c, Z
         self.N_total_firms = int(n_total_firms)
-        self._profit_shifted = (self.tau_d > self.tau_f)
+        self._profit_shifted = self.tau_d > self.tau_f
 
         # bar_beta = 1 lookup slices (exactly as notebook does). :contentReference[oaicite:2]{index=2}
         idx_d = int(get_tau_d_index(self.tau_d))
@@ -50,7 +52,9 @@ class BaselineModel:
         # store indexers
         self._get_v_index = get_v_index
 
-    def _calculate_components_for_v(self, w: Callable[[np.ndarray | float], np.ndarray | float], v: float):
+    def _calculate_components_for_v(
+        self, w: Callable[[np.ndarray | float], np.ndarray | float], v: float
+    ):
         """
         Compute all pieces for a single v at beta=1. Mirrors notebook In[23].
         """
@@ -65,7 +69,10 @@ class BaselineModel:
 
         # Innovator payoff and utility. :contentReference[oaicite:6]{index=6}
         if self._profit_shifted:
-            innovator_payoff = beta * ((1 - self.tau_f) * (v - self.c(theta_winner, v)) + (1 - self.tau_d) * self.c(theta_winner, v))
+            innovator_payoff = beta * (
+                (1 - self.tau_f) * (v - self.c(theta_winner, v))
+                + (1 - self.tau_d) * self.c(theta_winner, v)
+            )
         else:
             innovator_payoff = beta * v * (1 - self.tau_d)
         innov_util = innovator_payoff - self.Z(beta, v) - self.c(theta_winner, v)
@@ -82,7 +89,9 @@ class BaselineModel:
         imitator_weights = self.theta_weights[imitator_mask]
         avg_imitator_cost = 0.0
         if np.sum(imitator_weights) > 0:
-            avg_imitator_cost = float(np.sum(self.c(imitator_thetas, v) * imitator_weights) / np.sum(imitator_weights))
+            avg_imitator_cost = float(
+                np.sum(self.c(imitator_thetas, v) * imitator_weights) / np.sum(imitator_weights)
+            )
         imit_util_total = -avg_imitator_cost * num_imitators if num_imitators > 0 else 0.0
 
         # Public revenue components; no imitator taxes; add fees. :contentReference[oaicite:8]{index=8}
@@ -97,7 +106,9 @@ class BaselineModel:
         public_revenue = tax_revenue + self.Z(beta, v)
 
         # Value conservation check. Sum of allocations equals v. :contentReference[oaicite:9]{index=9}
-        total_value_distributed = (innovator_payoff - self.Z(beta, v)) + public_revenue + foreign_tax_paid
+        total_value_distributed = (
+            (innovator_payoff - self.Z(beta, v)) + public_revenue + foreign_tax_paid
+        )
         if not np.isclose(total_value_distributed, v):
             raise ValueError("Value conservation error in BaselineModel.")
 
@@ -110,7 +121,13 @@ class BaselineModel:
         avg_w_non_investor = 0.0
         denom_non = float(np.sum(self.theta_weights[non_investor_mask]))
         if denom_non > 0:
-            avg_w_non_investor = float(np.sum(np.asarray(w(self.theta_points[non_investor_mask])) * self.theta_weights[non_investor_mask]) / denom_non)
+            avg_w_non_investor = float(
+                np.sum(
+                    np.asarray(w(self.theta_points[non_investor_mask]))
+                    * self.theta_weights[non_investor_mask]
+                )
+                / denom_non
+            )
         total_welfare_non_investor = transfer * avg_w_non_investor * num_non_investors
 
         non_invest_util = transfer * num_non_investors
@@ -120,11 +137,17 @@ class BaselineModel:
         avg_w_imitator = 0.0
         denom_inv = float(np.sum(imitator_weights))
         if num_imitators > 0 and denom_inv > 0:
-            avg_w_imitator = float(np.sum(np.asarray(w(imitator_thetas)) * imitator_weights) / denom_inv)
+            avg_w_imitator = float(
+                np.sum(np.asarray(w(imitator_thetas)) * imitator_weights) / denom_inv
+            )
         total_welfare_imitator = imit_util_total * avg_w_imitator
 
         # Government welfare for this v. :contentReference[oaicite:13]{index=13}
-        gov_welfare = float(np.asarray(w(theta_winner))) * innov_util + total_welfare_imitator + total_welfare_non_investor
+        gov_welfare = (
+            float(np.asarray(w(theta_winner))) * innov_util
+            + total_welfare_imitator
+            + total_welfare_non_investor
+        )
 
         return {
             "gov_welfare": float(gov_welfare),
@@ -137,12 +160,19 @@ class BaselineModel:
         Expected baseline outcomes by averaging over v with weights. :contentReference[oaicite:14]{index=14}
         """
         w = self.gov_prefs[government_scheme]
-        acc = {"gov_welfare": 0.0, "innov_util": 0.0, "non_innov_util": 0.0}
-        for i, v in enumerate(self.v_grid):
-            res = self._calculate_components_for_v(w, float(v))
-            if res:
-                wt = float(self.v_weights[i])
-                acc["gov_welfare"] += res["gov_welfare"] * wt
-                acc["innov_util"] += res["innov_util"] * wt
-                acc["non_innov_util"] += res["non_innov_util"] * wt
+        components = [self._calculate_components_for_v(w, float(v)) for v in self.v_grid]
+        gov_welfare_arr = np.array(
+            [comp["gov_welfare"] if comp else 0.0 for comp in components], dtype=float
+        )
+        innov_util_arr = np.array(
+            [comp["innov_util"] if comp else 0.0 for comp in components], dtype=float
+        )
+        non_innov_util_arr = np.array(
+            [comp["non_innov_util"] if comp else 0.0 for comp in components], dtype=float
+        )
+        acc = {
+            "gov_welfare": float(np.dot(gov_welfare_arr, self.v_weights)),
+            "innov_util": float(np.dot(innov_util_arr, self.v_weights)),
+            "non_innov_util": float(np.dot(non_innov_util_arr, self.v_weights)),
+        }
         return pd.Series(acc, name="baseline_results")
