@@ -117,8 +117,11 @@ class GovernmentModel:
             return None
 
         # transfers to non-investors
-        F_theta_tilde = float(self.F(float(theta_tilde)))
-        num_non_investors = int(F_theta_tilde * self.N_total_firms)
+        F_theta_tilde = float(self.F(float(theta_tilde))) if theta_tilde < 1 else 1.0
+        if theta_tilde >= 1:
+            num_non_investors = self.N_total_firms - 1
+        else:
+            num_non_investors = int(F_theta_tilde * self.N_total_firms)
         transfer = float(tax_rev_star) / num_non_investors if num_non_investors > 0 else 0.0
 
         # average welfare weights
@@ -131,7 +134,10 @@ class GovernmentModel:
         total_welfare_non_investor = transfer * avg_w_non_investor * num_non_investors
 
         investor_mask = self.theta_points >= theta_tilde
-        num_imitators = int((1.0 - F_theta_tilde) * self.N_total_firms) - 1
+        if theta_tilde >= 1:
+            num_imitators = 0
+        else:
+            num_imitators = max(int((1.0 - F_theta_tilde) * self.N_total_firms) - 1, 0)
         total_investor_prob_mass = float(np.sum(self.theta_weights[investor_mask]))
         avg_w_imitator = 0.0
         if num_imitators > 0 and total_investor_prob_mass > 0:

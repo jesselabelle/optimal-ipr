@@ -105,7 +105,7 @@ class InvestmentCutoffSolver:
         self._bar_beta = float(bar_beta)
         self._rev_cache.clear()
 
-        top = self._indifference_gap(0.9990)
+        top = self._indifference_gap(0.9999)
         if top < 0:
             return 1.0
         bot = self._indifference_gap(0.0001)

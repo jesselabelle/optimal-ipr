@@ -50,21 +50,27 @@ class RegulatorModel:
         v: float,
     ) -> Optional[Dict[str, np.ndarray]]:
         # feasible betas
-        beta = self.beta_grid[self.beta_grid <= bar_beta]
-        if beta.size == 0:
-            return None
+        if np.isclose(theta_tilde, 1.0):
+            beta = np.array([1.0])
+        else:
+            beta = self.beta_grid[self.beta_grid <= bar_beta]
+            if beta.size == 0:
+                return None
 
         # investor and imitator counts
-        num_investors = int((1.0 - self.F(theta_tilde)) * self.n_total_firms)
-        if num_investors < 1:
-            return {
-                "beta": beta,
-                "innov_util": np.zeros_like(beta),
-                "imit_util_total": np.zeros_like(beta),
-                "tax_revenue": np.zeros_like(beta),
-                "public_revenue": np.zeros_like(beta),
-                "welfare": np.zeros_like(beta),
-            }
+        if np.isclose(theta_tilde, 1.0):
+            num_investors = 1
+        else:
+            num_investors = int((1.0 - self.F(theta_tilde)) * self.n_total_firms)
+            if num_investors < 1:
+                return {
+                    "beta": beta,
+                    "innov_util": np.zeros_like(beta),
+                    "imit_util_total": np.zeros_like(beta),
+                    "tax_revenue": np.zeros_like(beta),
+                    "public_revenue": np.zeros_like(beta),
+                    "welfare": np.zeros_like(beta),
+                }
         num_imitators = max(num_investors - 1, 0)
 
         # innovator payoff before fees and own cost
