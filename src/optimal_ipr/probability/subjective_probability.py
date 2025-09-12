@@ -1,9 +1,12 @@
 from __future__ import annotations
-import numpy as np
+
 from typing import Callable
+
+import numpy as np
 
 # Match the .py: use total market size for the upper bound on perceived competitors
 _N_TOTAL_FIRMS = 29_990  # max_competitors
+
 
 class PerceivedProbability:
     def __init__(
@@ -21,7 +24,7 @@ class PerceivedProbability:
         self._base_k = float(base_k)
         self._max_n = int(max_competitors)
         self._min_n = int(min_competitors)
-        self._cache = {}  # cache full p(theta,·) curve per v
+        self._cache: dict[float, np.ndarray] = {}
 
     def _get_perceived_n(self, theta: float) -> int:
         # Linear map: F(theta)=0 -> max_n; F(theta)=1 -> min_n
@@ -59,16 +62,20 @@ class PerceivedProbability:
             self._cache[v_key] = self._generate_curve(v_key)
         return np.interp(np.asarray(theta), self._agent_types, self._cache[v_key])
 
+
 def build_subjective_probability(
     base_k: float,
     m_comp: int,
-    F: Callable[[np.ndarray], np.ndarray],
-    F_inv: Callable[[np.ndarray], np.ndarray],
+    F: Callable[[np.ndarray], np.ndarray] | None = None,
+    F_inv: Callable[[np.ndarray], np.ndarray] | None = None,
 ) -> Callable[[np.ndarray | float, float], np.ndarray | float]:
-    """
-    Inputs: base_k, m_comp (minimum competitors), F, F_inv.
-    Output: p(theta, v) as a callable.
-    """
+    """Construct the perceived probability function ``p(theta, v)``."""
+
+    if F is None:
+        F = lambda x: x  # identity map
+    if F_inv is None:
+        F_inv = lambda x: x
+
     theta_grid = np.linspace(0.0, 1.0, 500)
     model = PerceivedProbability(
         agent_types_grid=theta_grid,

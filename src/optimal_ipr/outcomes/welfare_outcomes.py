@@ -1,14 +1,19 @@
 from __future__ import annotations
+
+from typing import Any, Callable, Dict, Sequence
+
 import numpy as np
 import pandas as pd
-from typing import Callable, Dict, Any, Sequence
-from optimal_ipr.government import GovernmentModel
+
 from optimal_ipr.baseline import BaselineModel
+from optimal_ipr.government import GovernmentModel
 
 _N_TOTAL_FIRMS = 29_990
 
+
 def _to_grid(x) -> np.ndarray:
     return np.atleast_1d(np.asarray(x, dtype=float))
+
 
 def welfare_outcomes(
     *,
@@ -27,6 +32,7 @@ def welfare_outcomes(
     c: Callable[[np.ndarray | float, np.ndarray | float], np.ndarray | float],
     Z: Callable[[np.ndarray | float, np.ndarray | float], np.ndarray | float],
     feas: bool,
+    reuse_baseline: bool = True,
 ) -> pd.DataFrame:
     """
     In[25]: Solve the gov problem for each (tau_d, tau_f), compute baseline (beta=1),
@@ -45,78 +51,137 @@ def welfare_outcomes(
     theta_weights = f(theta_points)
 
     # index helpers aligned with lookup axes
-    def get_tau_d_index(val, grid=tau_d_grid): return int(np.argmin(np.abs(grid - val)))
-    def get_tau_f_index(val, grid=tau_f_grid): return int(np.argmin(np.abs(grid - val)))
-    def get_bar_beta_index(val, grid=bar_grid): return int(np.argmin(np.abs(grid - val)))
-    def get_v_index(val, grid=v_grid): return int(np.argmin(np.abs(grid - val)))
+    def get_tau_d_index(val, grid=tau_d_grid):
+        return int(np.argmin(np.abs(grid - val)))
+
+    def get_tau_f_index(val, grid=tau_f_grid):
+        return int(np.argmin(np.abs(grid - val)))
+
+    def get_bar_beta_index(val, grid=bar_grid):
+        return int(np.argmin(np.abs(grid - val)))
+
+    def get_v_index(val, grid=v_grid):
+        return int(np.argmin(np.abs(grid - val)))
 
     # 1) Main simulations across schemes
     records = []
+    gov_model_cache: Dict[tuple[float, float], GovernmentModel] = {}
     for td in tau_d_grid:
         for tf in tau_f_grid:
-            gov_model = GovernmentModel(
-                tau_d=float(td), tau_f=float(tf),
-                gov_prefs=gov_prefs, reg_prefs=reg_prefs,
-                v_grid=v_grid, v_weights=v_weights, bar_grid=bar_grid,
-                master_lookup_table=theta_tilde_table, master_winner_table=theta_winner_table,
-                theta_points=theta_points, theta_weights=theta_weights,
-                enf_feas=feas,
-                p=p, c=c, Z=Z, f=f, F=lambda t: float(F(np.array([t]))) if callable(F) else F,
-                n_total_firms=_N_TOTAL_FIRMS, beta_grid=beta_grid,
-                get_tau_d_index=get_tau_d_index, get_tau_f_index=get_tau_f_index,
-                get_bar_beta_index=get_bar_beta_index, get_v_index=get_v_index,
-                agent_types_grid=theta_points,
-            )
+            key = (float(td), float(tf))
+            if key not in gov_model_cache:
+                gov_model_cache[key] = GovernmentModel(
+                    tau_d=key[0],
+                    tau_f=key[1],
+                    gov_prefs=gov_prefs,
+                    reg_prefs=reg_prefs,
+                    v_grid=v_grid,
+                    v_weights=v_weights,
+                    bar_grid=bar_grid,
+                    master_lookup_table=theta_tilde_table,
+                    master_winner_table=theta_winner_table,
+                    theta_points=theta_points,
+                    theta_weights=theta_weights,
+                    enf_feas=feas,
+                    p=p,
+                    c=c,
+                    Z=Z,
+                    f=f,
+                    F=lambda t: float(F(np.array([t]))) if callable(F) else F,
+                    n_total_firms=_N_TOTAL_FIRMS,
+                    beta_grid=beta_grid,
+                    get_tau_d_index=get_tau_d_index,
+                    get_tau_f_index=get_tau_f_index,
+                    get_bar_beta_index=get_bar_beta_index,
+                    get_v_index=get_v_index,
+                    agent_types_grid=theta_points,
+                )
+            gov_model = gov_model_cache[key]
             for gov_name in gov_prefs.keys():
                 for reg_name in reg_prefs.keys():
-                    optimal_row, _ = gov_model.solve(government_scheme=gov_name, regulator_scheme=reg_name)
+                    optimal_row, _ = gov_model.solve(
+                        government_scheme=gov_name, regulator_scheme=reg_name
+                    )
                     if optimal_row is None:
                         continue
-                    records.append({
-                        "tau_d": float(td),
-                        "tau_f": float(tf),
-                        "gov_scheme": gov_name,
-                        "reg_scheme": reg_name,
-                        "bar_beta": float(optimal_row["bar_beta"]),
-                        "expected_welfare": float(optimal_row["expected_welfare"]),
-                        "expected_innov_util": float(optimal_row["expected_innov_util"]),
-                        "expected_non_innov_util": float(optimal_row["expected_non_innov_util"]),
-                    })
+                    records.append(
+                        {
+                            "tau_d": key[0],
+                            "tau_f": key[1],
+                            "gov_scheme": gov_name,
+                            "reg_scheme": reg_name,
+                            "bar_beta": float(optimal_row["bar_beta"]),
+                            "expected_welfare": float(optimal_row["expected_welfare"]),
+                            "expected_innov_util": float(optimal_row["expected_innov_util"]),
+                            "expected_non_innov_util": float(
+                                optimal_row["expected_non_innov_util"]
+                            ),
+                        }
+                    )
     main_df = pd.DataFrame.from_records(records)
     if main_df.empty:
-        return pd.DataFrame(columns=[
-            "Tau D","Tau F","Gov Pref","Reg Pref","Optimal Policy",
-            "Welfare % Change","Innovator Util % Change","Non-Innovator Util % Change"
-        ])
+        return pd.DataFrame(
+            columns=[
+                "Tau D",
+                "Tau F",
+                "Gov Pref",
+                "Reg Pref",
+                "Optimal Policy",
+                "Welfare % Change",
+                "Innovator Util % Change",
+                "Non-Innovator Util % Change",
+            ]
+        )
 
     # 2) Baseline per (tau_d, tau_f, gov_scheme)
     base_records = []
+    baseline_model_cache: Dict[tuple[float, float], BaselineModel] = {}
+    baseline_results_cache: Dict[tuple[float, float, str], Dict[str, float]] = {}
     for td in tau_d_grid:
         for tf in tau_f_grid:
-            baseline = BaselineModel(
-                tau_d=float(td), tau_f=float(tf), gov_prefs=gov_prefs,
-                v_grid=v_grid, v_weights=v_weights,
-                master_lookup_table=theta_tilde_table, master_winner_table=theta_winner_table,
-                theta_points=theta_points, theta_weights=theta_weights,
-                F=lambda t: float(F(np.array([t]))) if callable(F) else F,
-                c=c, Z=Z, n_total_firms=_N_TOTAL_FIRMS,
-                get_tau_d_index=get_tau_d_index, get_tau_f_index=get_tau_f_index,
-                get_bar_beta_index=get_bar_beta_index, get_v_index=get_v_index,
-            )
+            key = (float(td), float(tf))
+            if key not in baseline_model_cache or not reuse_baseline:
+                baseline_model_cache[key] = BaselineModel(
+                    tau_d=key[0],
+                    tau_f=key[1],
+                    gov_prefs=gov_prefs,
+                    v_grid=v_grid,
+                    v_weights=v_weights,
+                    master_lookup_table=theta_tilde_table,
+                    master_winner_table=theta_winner_table,
+                    theta_points=theta_points,
+                    theta_weights=theta_weights,
+                    F=lambda t: float(F(np.array([t]))) if callable(F) else F,
+                    c=c,
+                    Z=Z,
+                    n_total_firms=_N_TOTAL_FIRMS,
+                    get_tau_d_index=get_tau_d_index,
+                    get_tau_f_index=get_tau_f_index,
+                    get_bar_beta_index=get_bar_beta_index,
+                    get_v_index=get_v_index,
+                )
+            baseline = baseline_model_cache[key]
             for gov_name in gov_prefs.keys():
-                base_row = baseline.solve(government_scheme=gov_name)
-                base_records.append({
-                    "tau_d": float(td),
-                    "tau_f": float(tf),
-                    "gov_scheme": gov_name,
-                    "baseline_gov_welfare": float(base_row["gov_welfare"]),
-                    "baseline_innov_util": float(base_row["innov_util"]),
-                    "baseline_non_innov_util": float(base_row["non_innov_util"]),
-                })
+                result_key = (key[0], key[1], gov_name)
+                if result_key in baseline_results_cache and reuse_baseline:
+                    base_row = baseline_results_cache[result_key]
+                else:
+                    base_row = baseline.solve(government_scheme=gov_name)
+                    baseline_results_cache[result_key] = base_row
+                base_records.append(
+                    {
+                        "tau_d": key[0],
+                        "tau_f": key[1],
+                        "gov_scheme": gov_name,
+                        "baseline_gov_welfare": float(base_row["gov_welfare"]),
+                        "baseline_innov_util": float(base_row["innov_util"]),
+                        "baseline_non_innov_util": float(base_row["non_innov_util"]),
+                    }
+                )
     base_df = pd.DataFrame.from_records(base_records)
 
     # 3) Merge and compute percent changes
-    results_df = main_df.merge(base_df, on=["tau_d","tau_f","gov_scheme"], how="left")
+    results_df = main_df.merge(base_df, on=["tau_d", "tau_f", "gov_scheme"], how="left")
 
     def pct_change(actual, baseline):
         if pd.isna(baseline) or pd.isna(actual) or baseline == 0:
