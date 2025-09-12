@@ -4,12 +4,89 @@ from typing import Callable, Tuple
 
 import numpy as np
 from joblib import Parallel, delayed
+from numba import njit, prange
 from numpy.typing import ArrayLike
 from scipy.optimize import brentq
 from tqdm.auto import tqdm
 
 # Match the file constants
 _N_TOTAL_FIRMS = 29_990  # N_total_firms
+
+
+@njit
+def _interp(x: float, xp: np.ndarray, fp: np.ndarray) -> float:
+    n = xp.size
+    if x <= xp[0]:
+        return fp[0]
+    if x >= xp[n - 1]:
+        return fp[n - 1]
+    idx = np.searchsorted(xp, x) - 1
+    x0 = xp[idx]
+    x1 = xp[idx + 1]
+    y0 = fp[idx]
+    y1 = fp[idx + 1]
+    return y0 + (y1 - y0) * (x - x0) / (x1 - x0)
+
+
+@njit(parallel=True)
+def _total_revenue_at_array(
+    theta_tilde: float,
+    theta_points: np.ndarray,
+    theta_weights: np.ndarray,
+    p_theta: np.ndarray,
+    c_theta: np.ndarray,
+    v: float,
+    bar_beta: float,
+    tau_d: float,
+    n_total_firms: float,
+    mass_of_investors: int,
+    profit_shifted: bool,
+) -> float:
+    if mass_of_investors < 1:
+        return 0.0
+    imitator_profit = (1.0 - bar_beta) * v / mass_of_investors
+    start_idx = np.searchsorted(theta_points, theta_tilde)
+    total = 0.0
+    for i in prange(start_idx, theta_points.size):
+        if profit_shifted:
+            innov_taxable = c_theta[i] * bar_beta
+        else:
+            innov_taxable = v * bar_beta
+        win_prob = p_theta[i]
+        expected_tax_base = win_prob * innov_taxable + (1.0 - win_prob) * imitator_profit
+        total += tau_d * n_total_firms * expected_tax_base * theta_weights[i]
+    return total
+
+
+@njit
+def _indifference_gap_array(
+    theta_tilde: float,
+    theta_points: np.ndarray,
+    p_theta: np.ndarray,
+    c_theta: np.ndarray,
+    v: float,
+    bar_beta: float,
+    tau_d: float,
+    tau_f: float,
+    Z_val: float,
+    profit_shifted: bool,
+    mass_of_investors: float,
+    transfer: float,
+) -> float:
+    c_th = _interp(theta_tilde, theta_points, c_theta)
+    p_th = _interp(theta_tilde, theta_points, p_theta)
+    if profit_shifted:
+        innovator_payoff = bar_beta * ((1.0 - tau_f) * (v - c_th) + (1.0 - tau_d) * c_th)
+    else:
+        innovator_payoff = bar_beta * v * (1.0 - tau_d)
+    if mass_of_investors >= 1.0:
+        imitator_payoff = (1.0 - bar_beta) * v / mass_of_investors
+    else:
+        imitator_payoff = 0.0
+    investing_utility = (
+        p_th * (innovator_payoff - Z_val) + (1.0 - p_th) * imitator_payoff * (1.0 - tau_d) - c_th
+    )
+    return investing_utility - transfer
 
 
 class InvestmentCutoffSolver:
@@ -41,77 +118,81 @@ class InvestmentCutoffSolver:
         self._v = None
         self._bar_beta = None
         self._rev_cache = {}
+        self._p_theta = None
+        self._c_theta = None
+        self._Z_val = None
 
-    def _total_revenue_at(self, theta_tilde: float) -> float:
+    def _total_revenue_at(
+        self, theta_tilde: float, mass_of_investors: float | None = None
+    ) -> float:
         key = float(theta_tilde)
         if key in self._rev_cache:
             return self._rev_cache[key]
-
-        mass_of_investors = int((1.0 - self.F(theta_tilde)) * self.n_total_firms)
-        if mass_of_investors < 1:
-            self._rev_cache[key] = 0.0
-            return 0.0
-
-        imitator_profit = (1.0 - self._bar_beta) * self._v / mass_of_investors
-
-        mask = self.theta_points >= theta_tilde
-        th = self.theta_points[mask]
-        w = self.theta_weights[mask]
-
-        if self._profit_shifted:
-            try:
-                innov_taxable = self.c(th, self._v) * self._bar_beta
-            except Exception:
-                innov_taxable = np.array([self.c(ti, self._v) for ti in th]) * self._bar_beta
+        if mass_of_investors is None:
+            mass_of_investors = int((1.0 - self.F(theta_tilde)) * self.n_total_firms)
         else:
-            innov_taxable = np.full_like(th, self._v * self._bar_beta)
+            mass_of_investors = int(mass_of_investors)
 
-        try:
-            win_prob = self.p(th, self._v)
-        except Exception:
-            win_prob = np.array([self.p(ti, self._v) for ti in th])
-
-        expected_tax_base_per_firm = win_prob * innov_taxable + (1.0 - win_prob) * imitator_profit
-        total_revenue = float(
-            np.sum(self.tau_d * self.n_total_firms * expected_tax_base_per_firm * w)
+        total_revenue = _total_revenue_at_array(
+            theta_tilde,
+            self.theta_points,
+            self.theta_weights,
+            self._p_theta,
+            self._c_theta,
+            self._v,
+            self._bar_beta,
+            self.tau_d,
+            self.n_total_firms,
+            mass_of_investors,
+            self._profit_shifted,
         )
-
         self._rev_cache[key] = total_revenue
         return total_revenue
 
-    def _get_transfer(self, theta_tilde: float) -> float:
-        num_non_investors = int(self.F(theta_tilde) * self.n_total_firms)
+    def _get_transfer(
+        self,
+        theta_tilde: float,
+        mass_of_investors: float,
+        num_non_investors: int,
+    ) -> float:
         if num_non_investors <= 1:
             return 0.0
-        return self._total_revenue_at(theta_tilde) / num_non_investors
+        return self._total_revenue_at(theta_tilde, mass_of_investors) / num_non_investors
 
     def _indifference_gap(self, theta_tilde: float) -> float:
         th = float(theta_tilde)
-        if self._profit_shifted:
-            innovator_payoff = self._bar_beta * (
-                (1 - self.tau_f) * (self._v - self.c(th, self._v))
-                + (1 - self.tau_d) * self.c(th, self._v)
-            )
-        else:
-            innovator_payoff = self._bar_beta * self._v * (1 - self.tau_d)
-
-        mass_of_investors = (1.0 - self.F(th)) * self.n_total_firms
-        imitator_payoff = (
-            (1.0 - self._bar_beta) * self._v / mass_of_investors if mass_of_investors >= 1 else 0.0
+        F_val = self.F(th)
+        mass_of_investors = (1.0 - F_val) * self.n_total_firms
+        num_non_investors = int(F_val * self.n_total_firms)
+        transfer = self._get_transfer(th, mass_of_investors, num_non_investors)
+        return _indifference_gap_array(
+            th,
+            self.theta_points,
+            self._p_theta,
+            self._c_theta,
+            self._v,
+            self._bar_beta,
+            self.tau_d,
+            self.tau_f,
+            self._Z_val,
+            self._profit_shifted,
+            mass_of_investors,
+            transfer,
         )
-
-        win_prob = self.p(th, self._v)
-        investing_utility = (
-            win_prob * (innovator_payoff - self.Z(self._bar_beta, self._v))
-            + (1.0 - win_prob) * imitator_payoff * (1.0 - self.tau_d)
-            - self.c(th, self._v)
-        )
-        return investing_utility - self._get_transfer(th)
 
     def solve(self, v: float, bar_beta: float):
         self._v = float(v)
         self._bar_beta = float(bar_beta)
         self._rev_cache.clear()
+        try:
+            self._p_theta = np.asarray(self.p(self.theta_points, self._v), dtype=float)
+        except Exception:
+            self._p_theta = np.array([self.p(ti, self._v) for ti in self.theta_points])
+        try:
+            self._c_theta = np.asarray(self.c(self.theta_points, self._v), dtype=float)
+        except Exception:
+            self._c_theta = np.array([self.c(ti, self._v) for ti in self.theta_points])
+        self._Z_val = float(self.Z(self._bar_beta, self._v))
 
         top = self._indifference_gap(0.999)
         if top < 0:
