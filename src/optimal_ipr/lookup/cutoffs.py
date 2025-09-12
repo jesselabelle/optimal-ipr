@@ -117,7 +117,7 @@ class InvestmentCutoffSolver:
             return None
 
 
-def choose_stochastic_winner(theta_tilde: float, v: float, p, theta_points: np.ndarray):
+def choose_stochastic_winner(theta_tilde: float, v: float, p, theta_points: np.ndarray, rng: np.random.Generator):
     """
     In[16]: randomly select one winner using conditional probabilities over θ ≥ θ̃.
     """
@@ -137,7 +137,7 @@ def choose_stochastic_winner(theta_tilde: float, v: float, p, theta_points: np.n
     conditional_win_probs = investor_probs / total_prob_mass
     conditional_win_probs = np.nan_to_num(conditional_win_probs)
     conditional_win_probs /= np.sum(conditional_win_probs)
-    return np.random.choice(investor_thetas, p=conditional_win_probs)
+    return rng.choice(investor_thetas, p=conditional_win_probs)
 
 
 def build_lookup_tables(
@@ -150,6 +150,7 @@ def build_lookup_tables(
     tau_f: ArrayLike,
     bar_beta: ArrayLike,
     v: ArrayLike,
+    seed: int = 42,
 ):
     """
     Inputs: p, c, Z, f, F, tau_d (scalar or 1D grid), tau_f (scalar or 1D grid), bar_beta (1D grid), v (1D grid).
@@ -165,7 +166,9 @@ def build_lookup_tables(
     bar_grid = np.atleast_1d(np.asarray(bar_beta, dtype=float))
     v_grid = np.atleast_1d(np.asarray(v, dtype=float))
 
-    def compute_slice_for_taus(td, tf) -> Tuple[np.ndarray, np.ndarray]:
+    base_rng = np.random.default_rng(seed)
+
+    def compute_slice_for_taus(td, tf, rng) -> Tuple[np.ndarray, np.ndarray]:
         """
         In[17]: produce both θ̃ and winner slices for one (tau_d, tau_f).
         """
@@ -178,13 +181,17 @@ def build_lookup_tables(
                 theta_tilde_val = solver.solve(v=v_val, bar_beta=bar_beta_val)
                 if theta_tilde_val is not None and 0 < theta_tilde_val < 1:
                     theta_tilde_slice[k, l] = theta_tilde_val
-                    stochastic_winner = choose_stochastic_winner(theta_tilde_val, v_val, p, theta_points)
+                    stochastic_winner = choose_stochastic_winner(theta_tilde_val, v_val, p, theta_points, rng)
                     theta_winner_slice[k, l] = stochastic_winner
         return theta_tilde_slice, theta_winner_slice
 
     tau_pairs = [(td, tf) for td in tau_d_grid for tf in tau_f_grid]
+    seeds = base_rng.integers(2**32, size=len(tau_pairs))
     results_list = Parallel(n_jobs=-1)(
-        delayed(compute_slice_for_taus)(td, tf) for td, tf in tqdm(tau_pairs, desc="Processing tau pairs")
+        delayed(compute_slice_for_taus)(td, tf, np.random.default_rng(s))
+        for (td, tf), s in tqdm(
+            zip(tau_pairs, seeds), total=len(tau_pairs), desc="Processing tau pairs"
+        )
     )
 
     lookup_table_shape = (len(tau_d_grid), len(tau_f_grid), len(bar_grid), len(v_grid))
