@@ -36,7 +36,7 @@ def _sigma_for_target_max(M: float, n_v: int) -> float:
 def _resolve_data_path() -> Path:
     # try cwd/data/..., then package-root/data/...
     cwd = Path.cwd()
-    p1 = cwd / _DATA_FILENAME
+    p1 = cwd.parent / "data" / _DATA_FILENAME
     if p1.exists():
         return p1
     # package root guess: src/optimal_ipr/distributions/ -> go up three, then data/...
