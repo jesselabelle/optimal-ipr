@@ -1,18 +1,22 @@
 from __future__ import annotations
-import numpy as np
+
 from typing import Callable, Tuple
-from numpy.typing import ArrayLike
+
+import numpy as np
 from joblib import Parallel, delayed
-from tqdm.auto import tqdm
+from numpy.typing import ArrayLike
 from scipy.optimize import brentq
+from tqdm.auto import tqdm
 
 # Match the file constants
 _N_TOTAL_FIRMS = 29_990  # N_total_firms
+
 
 class InvestmentCutoffSolver:
     """
     Discrete-sum version as in In[14].
     """
+
     def __init__(
         self,
         p_func: Callable[[ArrayLike, float], np.ndarray],
@@ -29,7 +33,7 @@ class InvestmentCutoffSolver:
         self.p, self.c, self.Z, self.f, self.F = p_func, c_func, Z_func, f_dist, F_dist
         self.n_total_firms = float(n_total_firms)
         self.tau_d, self.tau_f = float(tau_d), float(tau_f)
-        self._profit_shifted = (self.tau_d > self.tau_f)
+        self._profit_shifted = self.tau_d > self.tau_f
 
         self.theta_points = np.asarray(theta_points, dtype=float)
         self.theta_weights = np.asarray(theta_weights, dtype=float)
@@ -68,7 +72,9 @@ class InvestmentCutoffSolver:
             win_prob = np.array([self.p(ti, self._v) for ti in th])
 
         expected_tax_base_per_firm = win_prob * innov_taxable + (1.0 - win_prob) * imitator_profit
-        total_revenue = float(np.sum(self.tau_d * self.n_total_firms * expected_tax_base_per_firm * w))
+        total_revenue = float(
+            np.sum(self.tau_d * self.n_total_firms * expected_tax_base_per_firm * w)
+        )
 
         self._rev_cache[key] = total_revenue
         return total_revenue
@@ -83,20 +89,22 @@ class InvestmentCutoffSolver:
         th = float(theta_tilde)
         if self._profit_shifted:
             innovator_payoff = self._bar_beta * (
-                (1 - self.tau_f) * (self._v - self.c(th, self._v)) +
-                (1 - self.tau_d) * self.c(th, self._v)
+                (1 - self.tau_f) * (self._v - self.c(th, self._v))
+                + (1 - self.tau_d) * self.c(th, self._v)
             )
         else:
             innovator_payoff = self._bar_beta * self._v * (1 - self.tau_d)
 
         mass_of_investors = (1.0 - self.F(th)) * self.n_total_firms
-        imitator_payoff = (1.0 - self._bar_beta) * self._v / mass_of_investors if mass_of_investors >= 1 else 0.0
+        imitator_payoff = (
+            (1.0 - self._bar_beta) * self._v / mass_of_investors if mass_of_investors >= 1 else 0.0
+        )
 
         win_prob = self.p(th, self._v)
         investing_utility = (
-            win_prob * (innovator_payoff - self.Z(self._bar_beta, self._v)) +
-            (1.0 - win_prob) * imitator_payoff * (1.0 - self.tau_d) -
-            self.c(th, self._v)
+            win_prob * (innovator_payoff - self.Z(self._bar_beta, self._v))
+            + (1.0 - win_prob) * imitator_payoff * (1.0 - self.tau_d)
+            - self.c(th, self._v)
         )
         return investing_utility - self._get_transfer(th)
 
@@ -150,6 +158,7 @@ def build_lookup_tables(
     tau_f: ArrayLike,
     bar_beta: ArrayLike,
     v: ArrayLike,
+    n_jobs: int | None = None,
 ):
     """
     Inputs: p, c, Z, f, F, tau_d (scalar or 1D grid), tau_f (scalar or 1D grid), bar_beta (1D grid), v (1D grid).
@@ -169,7 +178,9 @@ def build_lookup_tables(
         """
         In[17]: produce both θ̃ and winner slices for one (tau_d, tau_f).
         """
-        solver = InvestmentCutoffSolver(p, c, Z, f, F, _N_TOTAL_FIRMS, td, tf, theta_points, theta_weights)
+        solver = InvestmentCutoffSolver(
+            p, c, Z, f, F, _N_TOTAL_FIRMS, td, tf, theta_points, theta_weights
+        )
         theta_tilde_slice = np.full((len(bar_grid), len(v_grid)), np.nan)
         theta_winner_slice = np.full((len(bar_grid), len(v_grid)), np.nan)
 
@@ -178,14 +189,24 @@ def build_lookup_tables(
                 theta_tilde_val = solver.solve(v=v_val, bar_beta=bar_beta_val)
                 if theta_tilde_val is not None and 0 < theta_tilde_val < 1:
                     theta_tilde_slice[k, l] = theta_tilde_val
-                    stochastic_winner = choose_stochastic_winner(theta_tilde_val, v_val, p, theta_points)
+                    stochastic_winner = choose_stochastic_winner(
+                        theta_tilde_val, v_val, p, theta_points
+                    )
                     theta_winner_slice[k, l] = stochastic_winner
         return theta_tilde_slice, theta_winner_slice
 
     tau_pairs = [(td, tf) for td in tau_d_grid for tf in tau_f_grid]
-    results_list = Parallel(n_jobs=-1)(
-        delayed(compute_slice_for_taus)(td, tf) for td, tf in tqdm(tau_pairs, desc="Processing tau pairs")
-    )
+
+    if n_jobs == 1 or len(tau_pairs) <= 1:
+        results_list = [
+            compute_slice_for_taus(td, tf)
+            for td, tf in tqdm(tau_pairs, desc="Processing tau pairs")
+        ]
+    else:
+        results_list = Parallel(n_jobs=n_jobs)(
+            delayed(compute_slice_for_taus)(td, tf)
+            for td, tf in tqdm(tau_pairs, desc="Processing tau pairs")
+        )
 
     lookup_table_shape = (len(tau_d_grid), len(tau_f_grid), len(bar_grid), len(v_grid))
     theta_tilde_table = np.full(lookup_table_shape, np.nan)
@@ -200,10 +221,17 @@ def build_lookup_tables(
             idx += 1
 
     # Helper index functions (closest grid index), as in the file
-    def get_tau_d_index(val, grid=tau_d_grid): return int(np.argmin(np.abs(grid - val)))
-    def get_tau_f_index(val, grid=tau_f_grid): return int(np.argmin(np.abs(grid - val)))
-    def get_bar_beta_index(val, grid=bar_grid): return int(np.argmin(np.abs(grid - val)))
-    def get_v_index(val, grid=v_grid): return int(np.argmin(np.abs(grid - val)))
+    def get_tau_d_index(val, grid=tau_d_grid):
+        return int(np.argmin(np.abs(grid - val)))
+
+    def get_tau_f_index(val, grid=tau_f_grid):
+        return int(np.argmin(np.abs(grid - val)))
+
+    def get_bar_beta_index(val, grid=bar_grid):
+        return int(np.argmin(np.abs(grid - val)))
+
+    def get_v_index(val, grid=v_grid):
+        return int(np.argmin(np.abs(grid - val)))
 
     return (
         theta_tilde_table,
