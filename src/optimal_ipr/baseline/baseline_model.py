@@ -72,6 +72,8 @@ class BaselineModel:
 
         # Imitator utility: zero revenue, pay average cost; exclude winner from investor set. :contentReference[oaicite:7]{index=7}
         num_investors = int((1 - self.F(theta_tilde)) * self.N_total_firms)
+        if theta_tilde >= 1.0:
+            num_investors = 1
         num_imitators = num_investors - 1
         investor_mask = self.theta_points >= theta_tilde
         winner_idx_in_grid = int(np.argmin(np.abs(self.theta_points - theta_winner)))
@@ -103,6 +105,8 @@ class BaselineModel:
 
         # Transfers to non-investors from tax revenue. :contentReference[oaicite:10]{index=10}
         num_non_investors = int(self.F(theta_tilde) * self.N_total_firms)
+        if theta_tilde >= 1.0:
+            num_non_investors = self.N_total_firms - num_investors
         transfer = tax_revenue / num_non_investors if num_non_investors > 0 else 0.0
 
         # Government welfare aggregation. Non-investors and imitators weighted by w(θ). :contentReference[oaicite:11]{index=11}
