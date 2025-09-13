@@ -127,13 +127,16 @@ class BaselineModel:
             avg_w_imitator = float(np.sum(np.asarray(w(imitator_thetas)) * imitator_weights) / denom_inv)
         total_welfare_imitator = imit_util_total * avg_w_imitator
 
+        total_welfare_innov = float(np.asarray(w(theta_winner))) * innov_util
+
         # Government welfare for this v. :contentReference[oaicite:13]{index=13}
         gov_welfare = float(np.asarray(w(theta_winner))) * innov_util + total_welfare_imitator + total_welfare_non_investor
 
         return {
             "gov_welfare": float(gov_welfare),
-            "innov_util": float(innov_util),
-            "non_innov_util": float(total_non_innov_util),
+            "total_welfare_innov": float(total_welfare_innov),
+            "total_welfare_imitator": float(total_welfare_imitator),
+            "total_welfare_non_investor": float(total_welfare_non_investor)
         }
 
     def solve(self, government_scheme: str) -> pd.Series:
@@ -141,12 +144,13 @@ class BaselineModel:
         Expected baseline outcomes by averaging over v with weights. :contentReference[oaicite:14]{index=14}
         """
         w = self.gov_prefs[government_scheme]
-        acc = {"gov_welfare": 0.0, "innov_util": 0.0, "non_innov_util": 0.0}
+        acc = {"gov_welfare": 0.0, "total_welfare_innov": 0.0, "total_welfare_imitator": 0.0, "total_welfare_non_investor": 0.0}
         for i, v in enumerate(self.v_grid):
             res = self._calculate_components_for_v(w, float(v))
             if res:
                 wt = float(self.v_weights[i])
                 acc["gov_welfare"] += res["gov_welfare"] * wt
-                acc["innov_util"] += res["innov_util"] * wt
-                acc["non_innov_util"] += res["non_innov_util"] * wt
+                acc["total_welfare_innov"] += res["total_welfare_innov"] * wt
+                acc["total_welfare_imitator"] += res["total_welfare_imitator"] * wt
+                acc["total_welfare_non_investor"] += res["total_welfare_non_investor"] * wt
         return pd.Series(acc, name="baseline_results")

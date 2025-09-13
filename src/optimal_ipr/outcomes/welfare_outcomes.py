@@ -79,14 +79,16 @@ def welfare_outcomes(
                         "reg_scheme": reg_name,
                         "bar_beta": float(optimal_row["bar_beta"]),
                         "expected_welfare": float(optimal_row["expected_welfare"]),
-                        "expected_innov_util": float(optimal_row["expected_innov_util"]),
-                        "expected_non_innov_util": float(optimal_row["expected_non_innov_util"]),
+                        "expected_innov_welfare": float(optimal_row["expected_innov_welfare"]),
+                        "expected_imit_welfare": float(optimal_row["expected_imit_welfare"]),
+                        "expected_non_invest_welfare": float(optimal_row["expected_non_invest_welfare"]),
                     })
     main_df = pd.DataFrame.from_records(records)
     if main_df.empty:
         return pd.DataFrame(columns=[
             "Tau D","Tau F","Gov Pref","Reg Pref","Optimal Policy",
-            "Welfare % Change","Innovator Util % Change","Non-Innovator Util % Change"
+            "Welfare % Change","Innovator Welfare % Change", "Imitator Welfare % Change", 
+            "Non-Investor Welfare % Change",
         ])
 
     # 2) Baseline per (tau_d, tau_f, gov_scheme)
@@ -110,8 +112,9 @@ def welfare_outcomes(
                     "tau_f": float(tf),
                     "gov_scheme": gov_name,
                     "baseline_gov_welfare": float(base_row["gov_welfare"]),
-                    "baseline_innov_util": float(base_row["innov_util"]),
-                    "baseline_non_innov_util": float(base_row["non_innov_util"]),
+                    "baseline_innov_welfare": float(base_row["total_welfare_innov"]),
+                    "baseline_imit_welfare": float(base_row["total_welfare_imitator"]),
+                    "baseline_non_invest_welfare": float(base_row["total_welfare_non_investor"]),
                 })
     base_df = pd.DataFrame.from_records(base_records)
 
@@ -126,11 +129,14 @@ def welfare_outcomes(
     results_df["welfare_pct_change"] = results_df.apply(
         lambda r: pct_change(r["expected_welfare"], r["baseline_gov_welfare"]), axis=1
     )
-    results_df["innov_util_pct_change"] = results_df.apply(
-        lambda r: pct_change(r["expected_innov_util"], r["baseline_innov_util"]), axis=1
+    results_df["innov_welfare_pct_change"] = results_df.apply(
+        lambda r: pct_change(r["expected_innov_welfare"], r["baseline_innov_welfare"]), axis=1
     )
-    results_df["non_innov_util_pct_change"] = results_df.apply(
-        lambda r: pct_change(r["expected_non_innov_util"], r["baseline_non_innov_util"]), axis=1
+    results_df["imit_welfare_pct_change"] = results_df.apply(
+        lambda r: pct_change(r["expected_imit_welfare"], r["baseline_imit_welfare"]), axis=1
+    )
+    results_df["non_invest_welfare_pct_change"] = results_df.apply(
+        lambda r: pct_change(r["expected_non_invest_welfare"], r["baseline_non_invest_welfare"]), axis=1
     )
 
     # 4) Final table
@@ -141,7 +147,8 @@ def welfare_outcomes(
         "reg_scheme": "Reg Pref",
         "bar_beta": "Optimal Policy",
         "welfare_pct_change": "Welfare % Change",
-        "innov_util_pct_change": "Innovator Util % Change",
-        "non_innov_util_pct_change": "Non-Innovator Util % Change",
+        "innov_welfare_pct_change": "Innovator Welfare % Change",
+        "imit_welfare_pct_change": "Imitator Welfare % Change",
+        "non_invest_welfare_pct_change": "Non-Investor Welfare % Change",
     }
     return results_df[list(final_cols.keys())].rename(columns=final_cols)
