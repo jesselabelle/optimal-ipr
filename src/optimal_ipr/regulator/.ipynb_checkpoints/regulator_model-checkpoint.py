@@ -51,7 +51,7 @@ class RegulatorModel:
     ) -> Optional[Dict[str, np.ndarray]]:
         # feasible betas
         if np.isclose(theta_tilde, 1.0):
-            beta = np.array([1.0])
+            beta = np.array([min(1.0, float(bar_beta))])
         else:
             beta = self.beta_grid[self.beta_grid <= bar_beta]
             if beta.size == 0:
