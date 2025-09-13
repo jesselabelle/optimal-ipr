@@ -1,7 +1,10 @@
 from __future__ import annotations
+
+from typing import Any, Callable, Dict, Optional
+
 import numpy as np
 import pandas as pd
-from typing import Callable, Dict, Any, Optional
+
 
 class RegulatorModel:
     """
@@ -35,7 +38,7 @@ class RegulatorModel:
         self.tau_d = float(tau_d)
         self.tau_f = float(tau_f)
         self.preferences = preferences_dict
-        self._profit_shifted = (self.tau_d > self.tau_f)
+        self._profit_shifted = self.tau_d > self.tau_f
         self.beta_grid = np.asarray(beta_grid, dtype=float)
         self.theta_points = np.asarray(theta_points, dtype=float)
         self.theta_weights = np.asarray(theta_weights, dtype=float)
@@ -51,7 +54,7 @@ class RegulatorModel:
     ) -> Optional[Dict[str, np.ndarray]]:
         # feasible betas
         if np.isclose(theta_tilde, 1.0):
-            beta = np.array([min(1.0, float(bar_beta))])
+            beta = np.array([min(1.0, float(bar_beta))]) #because no one else invests so they can't allocate to anyone else anyway
         else:
             beta = self.beta_grid[self.beta_grid <= bar_beta]
             if beta.size == 0:
@@ -76,8 +79,8 @@ class RegulatorModel:
         # innovator payoff before fees and own cost
         if self._profit_shifted:
             innovator_payoff = beta * (
-                (1.0 - self.tau_f) * (v - self.c(theta_winner, v)) +
-                (1.0 - self.tau_d) * self.c(theta_winner, v)
+                (1.0 - self.tau_f) * (v - self.c(theta_winner, v))
+                + (1.0 - self.tau_d) * self.c(theta_winner, v)
             )
         else:
             innovator_payoff = beta * v * (1.0 - self.tau_d)
@@ -97,12 +100,17 @@ class RegulatorModel:
         total_imit_mass = float(np.sum(imitator_weights))
 
         if total_imit_mass > 0:
-            avg_imitator_cost = float(np.sum(self.c(imitator_thetas, v) * imitator_weights) / total_imit_mass)
+            avg_imitator_cost = float(
+                np.sum(self.c(imitator_thetas, v) * imitator_weights) / total_imit_mass
+            )
         else:
             avg_imitator_cost = 0.0
 
         imitator_profit_pool = (1.0 - beta) * v
-        profit_per_imitator = np.where(num_imitators > 0, imitator_profit_pool / num_imitators, 0.0)
+        if num_imitators > 0:
+            profit_per_imitator = imitator_profit_pool / num_imitators
+        else:
+            profit_per_imitator = np.zeros_like(beta)
         after_tax_profit_per_imit = profit_per_imitator * (1.0 - self.tau_d)
         avg_imitator_utility = after_tax_profit_per_imit - avg_imitator_cost
         imit_util_total = avg_imitator_utility * num_imitators
@@ -116,7 +124,9 @@ class RegulatorModel:
             foreign_tax_paid = np.zeros_like(beta)
 
         tax_from_innov = self.tau_d * beta * innov_taxable_base
-        tax_from_imits = self.tau_d * imitator_profit_pool if num_imitators > 0 else np.zeros_like(beta)
+        tax_from_imits = (
+            self.tau_d * imitator_profit_pool if num_imitators > 0 else np.zeros_like(beta)
+        )
         tax_revenue = tax_from_innov + tax_from_imits
         public_revenue = tax_revenue + self.Z(beta, v)
 
@@ -124,12 +134,17 @@ class RegulatorModel:
         innov_pre_cost_take_home = innovator_payoff - self.Z(beta, v)
         imits_pre_cost_take_home = after_tax_profit_per_imit * num_imitators
         total_value_distributed = (
-            innov_pre_cost_take_home + imits_pre_cost_take_home + tax_revenue + foreign_tax_paid + self.Z(beta, v)
+            innov_pre_cost_take_home
+            + imits_pre_cost_take_home
+            + tax_revenue
+            + foreign_tax_paid
+            + self.Z(beta, v)
         )
-        if not np.all(np.isclose(total_value_distributed, v)):
+        expected_total = np.full_like(beta, v) if num_imitators > 0 else beta * v
+        if not np.allclose(total_value_distributed, expected_total):
             raise ValueError(
-                "Value conservation error: distributed total differs from v. "
-                f"v={v}, total={total_value_distributed}"
+                "Value conservation error: distributed total differs from expected total. "
+                f"expected={expected_total}, total={total_value_distributed}"
             )
 
         # Calculate Total Welfare based on the regulator's preference scheme.
@@ -142,7 +157,7 @@ class RegulatorModel:
                 # Welfare is the utility of the worst-off agent (min of innovator vs avg imitator)
                 welfare = np.minimum(innov_util, avg_imitator_utility)
             else:
-                welfare = np.zeros_like(beta) # Should not happen
+                welfare = np.zeros_like(beta)  # Should not happen
         else:
             # Weighted sum based on phi (private vs. private) and psi (private vs. public)
             phi, psi = scheme_params["phi"], scheme_params["psi"]
@@ -168,12 +183,16 @@ class RegulatorModel:
         enforce_feasibility: Optional[bool] = None,
     ):
         """Return (beta_star, tax_revenue_star, reg_welfare_star)."""
-        components = self._calculate_all_welfare_components(scheme, bar_beta, theta_tilde, theta_winner, v)
+        components = self._calculate_all_welfare_components(
+            scheme, bar_beta, theta_tilde, theta_winner, v
+        )
         if components is None:
             return None, None, None
 
         # participation constraints
-        check = self.enforce_feasibility if enforce_feasibility is None else bool(enforce_feasibility)
+        check = (
+            self.enforce_feasibility if enforce_feasibility is None else bool(enforce_feasibility)
+        )
         if check:
             feasible = (components["innov_util"] > 0) & (components["imit_util_total"] > 0)
             if not np.any(feasible):
@@ -188,8 +207,12 @@ class RegulatorModel:
         reg_welfare_star = float(components["welfare"][idx])
         return beta_star, tax_revenue_star, reg_welfare_star
 
-    def debug_solve(self, scheme: str, bar_beta: float, theta_tilde: float, theta_winner: float, v: float) -> pd.DataFrame:
-        comps = self._calculate_all_welfare_components(scheme, bar_beta, theta_tilde, theta_winner, v)
+    def debug_solve(
+        self, scheme: str, bar_beta: float, theta_tilde: float, theta_winner: float, v: float
+    ) -> pd.DataFrame:
+        comps = self._calculate_all_welfare_components(
+            scheme, bar_beta, theta_tilde, theta_winner, v
+        )
         if comps is None:
             return pd.DataFrame()
         return pd.DataFrame(comps)
