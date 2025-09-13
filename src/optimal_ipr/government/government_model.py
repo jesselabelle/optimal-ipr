@@ -4,6 +4,7 @@ import pandas as pd
 from typing import Callable, Dict, Any, Optional
 from optimal_ipr.regulator import RegulatorModel
 
+
 class GovernmentModel:
     """
     Discrete government's problem, aligned with In[40]-In[41].
@@ -62,16 +63,28 @@ class GovernmentModel:
 
         # regulator sub-problem (same construction as notebook)
         self.regulator_solver = RegulatorModel(
-            p_func=p, c_func=c, Z_func=Z, f_dist=f, F_dist=F,
-            n_total_firms=n_total_firms, tau_d=self.tau_d, tau_f=self.tau_f,
-            preferences_dict=reg_prefs, beta_grid=beta_grid,
-            theta_points=self.theta_points, theta_weights=self.theta_weights,
+            p_func=p,
+            c_func=c,
+            Z_func=Z,
+            f_dist=f,
+            F_dist=F,
+            n_total_firms=n_total_firms,
+            tau_d=self.tau_d,
+            tau_f=self.tau_f,
+            preferences_dict=reg_prefs,
+            beta_grid=beta_grid,
+            theta_points=self.theta_points,
+            theta_weights=self.theta_weights,
             enforce_feasibility=self.enf_feas,
         )
 
         self._get_bar_beta_index = get_bar_beta_index
         self._get_v_index = get_v_index
-        self._agent_types_grid = np.asarray(agent_types_grid) if agent_types_grid is not None else np.linspace(0.0, 1.0, 500)
+        self._agent_types_grid = (
+            np.asarray(agent_types_grid)
+            if agent_types_grid is not None
+            else np.linspace(0.0, 1.0, 500)
+        )
 
     def _calculate_welfare_for_v(
         self,
@@ -85,7 +98,7 @@ class GovernmentModel:
         theta_tilde = self.theta_tilde_slice[idx_bar_beta, idx_v]
         theta_winner = self.theta_winner_slice[idx_bar_beta, idx_v]
 
-        if theta_tilde is None or np.isnan(theta_tilde) or not (0 < theta_tilde < 1):
+        if theta_tilde is None or np.isnan(theta_tilde) or (theta_tilde < 0) or (theta_tilde > 1):
             return None
 
         # sanity check as in notebook
@@ -105,7 +118,9 @@ class GovernmentModel:
             return None
 
         # full component table at the chosen (bar_beta, v)
-        components_df = self.regulator_solver.debug_solve(regulator_scheme, float(bar_beta), float(theta_tilde), float(theta_winner), float(v))
+        components_df = self.regulator_solver.debug_solve(
+            regulator_scheme, float(bar_beta), float(theta_tilde), float(theta_winner), float(v)
+        )
         if components_df.empty or not np.any(np.isclose(components_df["beta"], beta_star)):
             return None
 
@@ -129,7 +144,13 @@ class GovernmentModel:
         total_non_investor_prob_mass = float(np.sum(self.theta_weights[non_investor_mask]))
         avg_w_non_investor = 0.0
         if total_non_investor_prob_mass > 0:
-            avg_w_non_investor = float(np.sum(np.asarray(w(self.theta_points[non_investor_mask])) * self.theta_weights[non_investor_mask]) / total_non_investor_prob_mass)
+            avg_w_non_investor = float(
+                np.sum(
+                    np.asarray(w(self.theta_points[non_investor_mask]))
+                    * self.theta_weights[non_investor_mask]
+                )
+                / total_non_investor_prob_mass
+            )
 
         total_welfare_non_investor = transfer * avg_w_non_investor * num_non_investors
 
@@ -141,7 +162,13 @@ class GovernmentModel:
         total_investor_prob_mass = float(np.sum(self.theta_weights[investor_mask]))
         avg_w_imitator = 0.0
         if num_imitators > 0 and total_investor_prob_mass > 0:
-            avg_w_imitator = float(np.sum(np.asarray(w(self.theta_points[investor_mask])) * self.theta_weights[investor_mask]) / total_investor_prob_mass)
+            avg_w_imitator = float(
+                np.sum(
+                    np.asarray(w(self.theta_points[investor_mask]))
+                    * self.theta_weights[investor_mask]
+                )
+                / total_investor_prob_mass
+            )
 
         total_welfare_imitator = imit_util * avg_w_imitator
 
@@ -150,9 +177,14 @@ class GovernmentModel:
         welfare_for_v = total_welfare_innov + total_welfare_imitator + total_welfare_non_investor
 
         return {
-            "welfare_for_v": welfare_for_v, "theta_tilde": float(theta_tilde), "theta_winner": float(theta_winner),
-            "beta_star": float(beta_star), "tax_revenue": float(tax_rev_star), "transfer": float(transfer),
-            "total_welfare_innov": float(total_welfare_innov), "total_welfare_imitator": float(total_welfare_imitator),
+            "welfare_for_v": welfare_for_v,
+            "theta_tilde": float(theta_tilde),
+            "theta_winner": float(theta_winner),
+            "beta_star": float(beta_star),
+            "tax_revenue": float(tax_rev_star),
+            "transfer": float(transfer),
+            "total_welfare_innov": float(total_welfare_innov),
+            "total_welfare_imitator": float(total_welfare_imitator),
             "total_welfare_non_investor": float(total_welfare_non_investor),
             "reg_welfare_for_v": float(reg_welfare_star),
         }
@@ -166,8 +198,8 @@ class GovernmentModel:
             expected_beta_star = 0.0
             expected_reg_welfare = 0.0
             expected_innov_welfare = 0.0
-            expected_imit_welfare  = 0.0
-            expected_non_invest_welfare  = 0.0
+            expected_imit_welfare = 0.0
+            expected_non_invest_welfare = 0.0
 
             for v_idx, v in enumerate(self.v_grid):
                 sim = self._calculate_welfare_for_v(w, regulator_scheme, float(bar_beta), float(v))
@@ -180,15 +212,17 @@ class GovernmentModel:
                     expected_imit_welfare += sim["total_welfare_imitator"] * weight
                     expected_non_invest_welfare += sim["total_welfare_non_investor"] * weight
 
-            results_list.append({
-                "bar_beta": float(bar_beta),
-                "expected_welfare": float(expected_welfare_gov),
-                "expected_beta_star": float(expected_beta_star),
-                "expected_reg_welfare": float(expected_reg_welfare),
-                "expected_innov_welfare": float(expected_innov_welfare),
-                "expected_imit_welfare": float(expected_imit_welfare),
-                "expected_non_invest_welfare": float(expected_non_invest_welfare),
-            })
+            results_list.append(
+                {
+                    "bar_beta": float(bar_beta),
+                    "expected_welfare": float(expected_welfare_gov),
+                    "expected_beta_star": float(expected_beta_star),
+                    "expected_reg_welfare": float(expected_reg_welfare),
+                    "expected_innov_welfare": float(expected_innov_welfare),
+                    "expected_imit_welfare": float(expected_imit_welfare),
+                    "expected_non_invest_welfare": float(expected_non_invest_welfare),
+                }
+            )
 
         if not results_list:
             return None, None
@@ -219,13 +253,15 @@ class GovernmentModel:
                     expected_imit_welfare += sim["total_welfare_imitator"] * weight
                     expected_non_invest_welfare += sim["total_welfare_non_investor"] * weight
 
-            debug_results.append({
-                "bar_beta": float(bar_beta),
-                "expected_welfare": float(expected_welfare_gov),
-                "expected_beta_star": float(expected_beta_star),
-                "expected_reg_welfare": float(expected_reg_welfare),
-                "expected_innov_welfare": float(expected_innov_welfare),
-                "expected_imit_welfare": float(expected_imit_welfare),
-                "expected_non_invest_welfare": float(expected_non_invest_welfare),
-            })
+            debug_results.append(
+                {
+                    "bar_beta": float(bar_beta),
+                    "expected_welfare": float(expected_welfare_gov),
+                    "expected_beta_star": float(expected_beta_star),
+                    "expected_reg_welfare": float(expected_reg_welfare),
+                    "expected_innov_welfare": float(expected_innov_welfare),
+                    "expected_imit_welfare": float(expected_imit_welfare),
+                    "expected_non_invest_welfare": float(expected_non_invest_welfare),
+                }
+            )
         return pd.DataFrame(debug_results)
