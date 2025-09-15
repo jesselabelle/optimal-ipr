@@ -78,6 +78,7 @@ def welfare_outcomes(
                         "gov_scheme": gov_name,
                         "reg_scheme": reg_name,
                         "bar_beta": float(optimal_row["bar_beta"]),
+                        "beta_star": float(optimal_row["expected_beta_star"]),
                         "expected_welfare": float(optimal_row["expected_welfare"]),
                         "expected_innov_welfare": float(optimal_row["expected_innov_welfare"]),
                         "expected_imit_welfare": float(optimal_row["expected_imit_welfare"]),
@@ -86,7 +87,7 @@ def welfare_outcomes(
     main_df = pd.DataFrame.from_records(records)
     if main_df.empty:
         return pd.DataFrame(columns=[
-            "Tau D","Tau F","Gov Pref","Reg Pref","Optimal Policy",
+            "Tau D","Tau F","Gov Pref","Reg Pref","Optimal Patent Breadth Cap", "Expected Optimal Patent Breadth Granted",
             "Welfare % Change","Innovator Welfare % Change", "Imitator Welfare % Change", 
             "Non-Investor Welfare % Change",
         ])
@@ -145,7 +146,8 @@ def welfare_outcomes(
         "tau_f": "Tau F",
         "gov_scheme": "Gov Pref",
         "reg_scheme": "Reg Pref",
-        "bar_beta": "Optimal Policy",
+        "bar_beta": "Optimal Patent Breadth Cap",
+        "beta_star": "Expected Optimal Patent Breadth Granted",
         "welfare_pct_change": "Welfare % Change",
         "innov_welfare_pct_change": "Innovator Welfare % Change",
         "imit_welfare_pct_change": "Imitator Welfare % Change",
