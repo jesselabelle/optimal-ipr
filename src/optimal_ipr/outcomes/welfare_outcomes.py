@@ -27,6 +27,10 @@ def welfare_outcomes(
     c: Callable[[np.ndarray | float, np.ndarray | float], np.ndarray | float],
     Z: Callable[[np.ndarray | float, np.ndarray | float], np.ndarray | float],
     feas: bool,
+    get_tau_d_index: Callable[[float], int] | None = None,
+    get_tau_f_index: Callable[[float], int] | None = None,
+    get_bar_beta_index: Callable[[float], int] | None = None,
+    get_v_index: Callable[[float], int] | None = None,
 ) -> pd.DataFrame:
     """
     In[25]: Solve the gov problem for each (tau_d, tau_f), compute baseline (beta=1),
@@ -34,6 +38,33 @@ def welfare_outcomes(
     """
     tau_d_grid = _to_grid(tau_d)
     tau_f_grid = _to_grid(tau_f)
+
+    # use lookup-table indexers when provided; otherwise infer from the caller grids
+    if get_tau_d_index is None:
+        lookup_tau_d_len = int(theta_tilde_table.shape[0])
+        if tau_d_grid.shape[0] != lookup_tau_d_len:
+            raise ValueError(
+                "tau_d grid length does not match lookup table axis. "
+                "Pass the indexer returned by build_lookup_tables to evaluate a subset of tau_d values."
+            )
+
+        def local_get_tau_d_index(val, grid=tau_d_grid):
+            return int(np.argmin(np.abs(grid - val)))
+    else:
+        local_get_tau_d_index = get_tau_d_index
+
+    if get_tau_f_index is None:
+        lookup_tau_f_len = int(theta_tilde_table.shape[1])
+        if tau_f_grid.shape[0] != lookup_tau_f_len:
+            raise ValueError(
+                "tau_f grid length does not match lookup table axis. "
+                "Pass the indexer returned by build_lookup_tables to evaluate a subset of tau_f values."
+            )
+
+        def local_get_tau_f_index(val, grid=tau_f_grid):
+            return int(np.argmin(np.abs(grid - val)))
+    else:
+        local_get_tau_f_index = get_tau_f_index
 
     # bar_beta grid inferred from lookup tables
     n_beta = int(theta_tilde_table.shape[2])
@@ -45,10 +76,17 @@ def welfare_outcomes(
     theta_weights = f(theta_points)
 
     # index helpers aligned with lookup axes
-    def get_tau_d_index(val, grid=tau_d_grid): return int(np.argmin(np.abs(grid - val)))
-    def get_tau_f_index(val, grid=tau_f_grid): return int(np.argmin(np.abs(grid - val)))
-    def get_bar_beta_index(val, grid=bar_grid): return int(np.argmin(np.abs(grid - val)))
-    def get_v_index(val, grid=v_grid): return int(np.argmin(np.abs(grid - val)))
+    if get_bar_beta_index is None:
+        def local_get_bar_beta_index(val, grid=bar_grid):
+            return int(np.argmin(np.abs(grid - val)))
+    else:
+        local_get_bar_beta_index = get_bar_beta_index
+
+    if get_v_index is None:
+        def local_get_v_index(val, grid=v_grid):
+            return int(np.argmin(np.abs(grid - val)))
+    else:
+        local_get_v_index = get_v_index
 
     # 1) Main simulations across schemes
     records = []
@@ -63,8 +101,8 @@ def welfare_outcomes(
                 enf_feas=feas,
                 p=p, c=c, Z=Z, f=f, F=lambda t: float(F(np.array([t]))) if callable(F) else F,
                 n_total_firms=_N_TOTAL_FIRMS, beta_grid=beta_grid,
-                get_tau_d_index=get_tau_d_index, get_tau_f_index=get_tau_f_index,
-                get_bar_beta_index=get_bar_beta_index, get_v_index=get_v_index,
+                get_tau_d_index=local_get_tau_d_index, get_tau_f_index=local_get_tau_f_index,
+                get_bar_beta_index=local_get_bar_beta_index, get_v_index=local_get_v_index,
                 agent_types_grid=theta_points,
             )
             for gov_name in gov_prefs.keys():
@@ -103,8 +141,8 @@ def welfare_outcomes(
                 theta_points=theta_points, theta_weights=theta_weights,
                 F=lambda t: float(F(np.array([t]))) if callable(F) else F,
                 c=c, Z=Z, n_total_firms=_N_TOTAL_FIRMS,
-                get_tau_d_index=get_tau_d_index, get_tau_f_index=get_tau_f_index,
-                get_bar_beta_index=get_bar_beta_index, get_v_index=get_v_index,
+                get_tau_d_index=local_get_tau_d_index, get_tau_f_index=local_get_tau_f_index,
+                get_bar_beta_index=local_get_bar_beta_index, get_v_index=local_get_v_index,
             )
             for gov_name in gov_prefs.keys():
                 base_row = baseline.solve(government_scheme=gov_name)
