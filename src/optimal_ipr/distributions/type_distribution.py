@@ -86,7 +86,7 @@ def _type_distribution(
     # Combine body + tail spending
     S = np.sort(np.concatenate([S_body, S_tail]))
     N = len(S)
-
+    total_spending = float(S.sum())
     # Fit Pareto tail from xmin_tail
     fit = powerlaw.Fit(S, discrete=False, xmin=xmin_tail)
     alpha = float(fit.alpha)
@@ -183,11 +183,11 @@ def build_theta_distribution(noise_level: float, n_grid_points: int = 20001) -> 
 ]:
     """
     Input: noise_level.
-    Output: (f, F, F_inv) where each is vectorized on [0,1].
+    Output: (f, F, F_inv) where each function is vectorized on [0,1].
     All other assumptions mirror the notebook/.py.
     """
     data_path = _resolve_data_path()
-    _, theta_det, fit, _ = _type_distribution(
+    _, theta_det, fit, details = _type_distribution(
         data_path=data_path,
         total_firms=_N_TOTAL_FIRMS,
         total_rd_spending_musd=_TOTAL_RD_SPENDING_MUSD,
@@ -199,4 +199,5 @@ def build_theta_distribution(noise_level: float, n_grid_points: int = 20001) -> 
     interp_grid = np.linspace(0.0, 1.0, 10000)
     cdf_vals = F(interp_grid)
     F_inv = interp1d(cdf_vals, interp_grid, bounds_error=False, fill_value=(0.0, 1.0))
+
     return f, F, F_inv
