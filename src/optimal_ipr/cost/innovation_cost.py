@@ -9,12 +9,12 @@ def _expect_power_term(f: Callable[[np.ndarray], np.ndarray],
     theta = np.linspace(0.0, 1.0, n_grid_points)
     pdf = np.clip(f(theta), 0.0, np.inf)
     # normalize defensively to 1 if f is slightly off due to numerics
-    area = np.trapz(pdf, theta)
+    area = np.trapezoid(pdf, theta)
     if area <= 0.0:
         raise ValueError("Density integrates to zero or negative over [0,1].")
     pdf /= area
     term = np.power(1.0 - theta, gamma_c)
-    return float(np.trapz(term * pdf, theta))
+    return float(np.trapezoid(term * pdf, theta))
 
 def build_cost_function(
     f: Callable[[np.ndarray], np.ndarray],
