@@ -180,10 +180,10 @@ def welfare_outcomes(
 
     # 4) Final table
     final_cols = {
-        "tau_d": "Tau D",
-        "tau_f": "Tau F",
         "gov_scheme": "Gov Pref",
         "reg_scheme": "Reg Pref",
+        "tau_d": "Tau D",
+        "tau_f": "Tau F",
         "bar_beta": "Optimal Patent Breadth Cap",
         "beta_star": "Expected Optimal Patent Breadth Granted",
         "welfare_pct_change": "Welfare % Change",
